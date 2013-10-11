@@ -224,7 +224,7 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 	}
 
 	hdr_sz += sizeof(uint32_t); /* eot marker */
-	hdr_sz += (hdr_sz + pagemask) & ~pagemask;
+	hdr_sz = (hdr_sz + pagemask) & ~pagemask;
 
 	qsort(entries, entry_count, sizeof(struct dt_entry), dt_entry_cmp);
 
