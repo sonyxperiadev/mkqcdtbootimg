@@ -32,7 +32,15 @@
 #include <unistd.h>
 
 #include "libfdt.h"
+#ifndef ANDROID
+#include <openssl/sha.h>
+#define SHA_init SHA1_Init
+#define	SHA_update SHA1_Update
+#define	_SHA_final SHA1_Final
+#else
 #include "mincrypt/sha.h"
+#define	_SHA_final(y,x) memcpy(y,SHA_final(x),SHA_DIGEST_SIZE)
+#endif
 #include "bootimg.h"
 
 #define QCDT_VERSION 1
@@ -333,7 +341,6 @@ int main(int argc, char **argv)
 	unsigned pagesize = 2048;
 	int fd;
 	SHA_CTX ctx;
-	uint8_t* sha;
 	unsigned base           = 0x10000000;
 	unsigned kernel_offset  = 0x00008000;
 	unsigned ramdisk_offset = 0x01000000;
@@ -472,9 +479,7 @@ int main(int argc, char **argv)
 		SHA_update(&ctx, dt_data, hdr.dt_size);
 		SHA_update(&ctx, &hdr.dt_size, sizeof(hdr.dt_size));
 	}
-	sha = SHA_final(&ctx);
-	memcpy(hdr.id, sha,
-			SHA_DIGEST_SIZE > sizeof(hdr.id) ? sizeof(hdr.id) : SHA_DIGEST_SIZE);
+	_SHA_final((uint8_t *)hdr.id, &ctx);
 
 	fd = open(bootimg, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 	if(fd < 0) {
