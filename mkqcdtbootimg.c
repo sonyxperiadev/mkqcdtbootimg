@@ -204,7 +204,7 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 		for (c = 0; c < count; c += 3) {
 			entry = &entries[entry_count];
 
-			memset(entry, 0, sizeof(entry));
+			memset(entry, 0, sizeof(*entry));
 			entry->platform = ntohl(prop[c]);
 			entry->variant = ntohl(prop[c+1]);
 			entry->rev = ntohl(prop[c+2]);
