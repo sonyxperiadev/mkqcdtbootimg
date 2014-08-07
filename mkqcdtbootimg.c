@@ -43,8 +43,6 @@
 #endif
 #include "bootimg.h"
 
-#define QCDT_VERSION 1
-
 struct dt_blob;
 
 /*
@@ -57,13 +55,13 @@ struct dt_header {
 	uint32_t entry_count;
 };
 
-/*
- * keep the five uint32_t entries first in this struct so we can memcpy them to the file
- */
-#define DT_ENTRY_PHYS_SIZE (sizeof(uint32_t) * 5)
+#define DT_ENTRY_PHYS_SIZE_V1 (sizeof(uint32_t) * 5)
+#define DT_ENTRY_PHYS_SIZE_V2 (sizeof(uint32_t) * 6)
+
 struct dt_entry {
 	uint32_t platform;
 	uint32_t variant;
+	uint32_t subtype;
 	uint32_t rev;
 	uint32_t offset;
 	uint32_t size; /* including padding */
@@ -130,6 +128,7 @@ oops:
 static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *_sz)
 {
 	const unsigned pagemask = pagesize - 1;
+	const unsigned *prop_board;
 	struct dt_entry *new_entries;
 	struct dt_entry *entries = NULL;
 	struct dt_entry *entry;
@@ -138,6 +137,7 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 	struct dt_blob *blob_list = NULL;
 	struct dt_blob *last_blob = NULL;
 	struct dirent *de;
+	uint32_t *dtqc_hdr;
 	unsigned new_count;
 	unsigned entry_count = 0;
 	unsigned offset;
@@ -145,10 +145,12 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 	unsigned dtb_sz;
 	unsigned hdr_sz = DT_HEADER_PHYS_SIZE;
 	unsigned blob_sz = 0;
+	int qcdt_version = 0;
 	char fname[PATH_MAX];
 	const unsigned *prop;
+	int board_len;
+	int msm_len;
 	int namlen;
-	int len;
 	void *dtb;
 	char *dtqc;
 	DIR *dir;
@@ -176,12 +178,44 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 		}
 
 		offset = fdt_path_offset(dtb, "/");
-		prop = fdt_getprop(dtb, offset, "qcom,msm-id", &len);
 
-		if (len % (3 * sizeof(uint32_t)) != 0) {
-			warnx("qcom,msm-id of %s is of invalid size, skipping", fname);
-			free(dtb);
-			continue;
+		prop_board = fdt_getprop(dtb, offset, "qcom,board-id", &board_len);
+		prop = fdt_getprop(dtb, offset, "qcom,msm-id", &msm_len);
+
+		if (prop_board) {
+			if (qcdt_version && qcdt_version != 2) {
+				warnx("%s is version 2, skipping", fname);
+				free(dtb);
+				continue;
+			}
+
+			if (board_len != (2 * sizeof(uint32_t))) {
+				warnx("several board-id defined");
+				free(dtb);
+				continue;
+			}
+
+			if (msm_len % (2 * sizeof(uint32_t)) != 0) {
+				warnx("qcom,msm-id of %s is of invalid size, skipping", fname);
+				free(dtb);
+				continue;
+			}
+
+			qcdt_version = 2;
+		} else {
+			if (qcdt_version && qcdt_version != 1) {
+				warnx("%s is version 1, skipping", fname);
+				free(dtb);
+				continue;
+			}
+
+			if (msm_len % (3 * sizeof(uint32_t)) != 0) {
+				warnx("qcom,msm-id of %s is of invalid size, skipping", fname);
+				free(dtb);
+				continue;
+			}
+
+			qcdt_version = 1;
 		}
 
 		blob = calloc(1, sizeof(struct dt_blob));
@@ -200,7 +234,7 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 
 		blob_sz += (blob->size + pagemask) & ~pagemask;
 
-		count = len / sizeof(uint32_t);
+		count = msm_len / sizeof(uint32_t);
 		new_count = entry_count + count;
 
 		new_entries = realloc(entries, new_count * sizeof(struct dt_entry));
@@ -209,19 +243,28 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 
 		entries = new_entries;
 
-		for (c = 0; c < count; c += 3) {
+		c = 0;
+		while (c < count) {
 			entry = &entries[entry_count];
 
 			memset(entry, 0, sizeof(*entry));
-			entry->platform = ntohl(prop[c]);
-			entry->variant = ntohl(prop[c+1]);
-			entry->rev = ntohl(prop[c+2]);
-			entry->blob = blob;
+			entry->platform = ntohl(prop[c++]);
+			if (qcdt_version == 1) {
+				entry->variant = ntohl(prop[c++]);
+			} else {
+				entry->variant = ntohl(prop_board[0]);
+				entry->subtype = ntohl(prop_board[1]);
+			}
+			entry->rev = ntohl(prop[c++]);
 
+			entry->blob = blob;
 			entry_count++;
 		}
 
-		hdr_sz += entry_count * DT_ENTRY_PHYS_SIZE;
+		if (qcdt_version == 1)
+			hdr_sz += entry_count * DT_ENTRY_PHYS_SIZE_V1;
+		else
+			hdr_sz += entry_count * DT_ENTRY_PHYS_SIZE_V2;
 	}
 
 	closedir(dir);
@@ -263,15 +306,33 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 	/* add dtqc header */
 	hdr = (struct dt_header*)dtqc;
 	memcpy(&hdr->magic, "QCDT", 4);
-	hdr->version = QCDT_VERSION;
+	hdr->version = qcdt_version;
 	hdr->entry_count = entry_count;
 	offset += DT_HEADER_PHYS_SIZE;
 
 	/* add dtqc entries */
 	for (c = 0; c < entry_count; c++) {
+		dtqc_hdr = (uint32_t*)(dtqc + offset);
 		entry = &entries[c];
-		memcpy(dtqc + offset, entry, DT_ENTRY_PHYS_SIZE);
-		offset += DT_ENTRY_PHYS_SIZE;
+
+		if (qcdt_version == 1) {
+			*dtqc_hdr++ = entry->platform;
+			*dtqc_hdr++ = entry->variant;
+			*dtqc_hdr++ = entry->rev;
+			*dtqc_hdr++ = entry->offset;
+			*dtqc_hdr++ = entry->size;
+
+			offset += DT_ENTRY_PHYS_SIZE_V1;
+		} else if (qcdt_version == 2) {
+			*dtqc_hdr++ = entry->platform;
+			*dtqc_hdr++ = entry->variant;
+			*dtqc_hdr++ = entry->subtype;
+			*dtqc_hdr++ = entry->rev;
+			*dtqc_hdr++ = entry->offset;
+			*dtqc_hdr++ = entry->size;
+
+			offset += DT_ENTRY_PHYS_SIZE_V2;
+		}
 	}
 
 	/* add padding after qcdt header */
