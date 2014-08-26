@@ -125,7 +125,10 @@ oops:
 	return 0;
 }
 
-static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *_sz)
+static void *load_dtqc_block(const char *dtb_path,
+			     unsigned pagesize,
+			     unsigned *_sz,
+			     unsigned qcdt_version)
 {
 	const unsigned pagemask = pagesize - 1;
 	const unsigned *prop_board;
@@ -145,7 +148,6 @@ static void *load_dtqc_block(const char *dtb_path, unsigned pagesize, unsigned *
 	unsigned dtb_sz;
 	unsigned hdr_sz = DT_HEADER_PHYS_SIZE;
 	unsigned blob_sz = 0;
-	int qcdt_version = 0;
 	char fname[PATH_MAX];
 	const unsigned *prop;
 	int board_len;
@@ -395,6 +397,7 @@ int main(int argc, char **argv)
 	char *second_fn = 0;
 	void *second_data = 0;
 	char *dt_dir = 0;
+	unsigned dt_version = 0;
 	void *dt_data = 0;
 	char *cmdline = "";
 	char *bootimg = 0;
@@ -431,6 +434,8 @@ int main(int argc, char **argv)
 			second_fn = val;
 		} else if (!strcmp(arg, "--dt_dir")) {
 			dt_dir = val;
+		} else if (!strcmp(arg, "--dt_version")) {
+			dt_version = strtoul(val, 0, 10);
 		} else if(!strcmp(arg, "--cmdline")) {
 			cmdline = val;
 		} else if(!strcmp(arg, "--base")) {
@@ -519,7 +524,7 @@ int main(int argc, char **argv)
 	}
 
 	if (dt_dir) {
-		dt_data = load_dtqc_block(dt_dir, pagesize, &hdr.dt_size);
+		dt_data = load_dtqc_block(dt_dir, pagesize, &hdr.dt_size, dt_version);
 		if (dt_data == 0) {
 			fprintf(stderr, "error: could not load device tree blobs '%s'\n", dt_dir);
 			return 1;
