@@ -45,7 +45,12 @@ struct boot_img_hdr
 
     uint32_t dt_size;      /* size in bytes */
 
-    uint32_t unused[1];    /* future expansion: should be 0 */
+    /* operating system version and security patch level; for
+     * version "A.B.C" and patch level "Y-M-D":
+     * ver = A << 14 | B << 7 | C         (7 bits for each of A, B, C)
+     * lvl = ((Y - 2000) & 127) << 4 | M  (7 bits for Y, 4 bits for M)
+     * os_version = ver << 11 | lvl */
+    uint32_t os_version;
 
     uint8_t name[BOOT_NAME_SIZE]; /* asciiz product name */
     

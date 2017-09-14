@@ -352,17 +352,58 @@ static void *load_dtqc_block(const char *dtb_path,
 	return dtqc;
 }
 
+uint32_t parse_os_version(const char *val)
+{
+    uint32_t res[3] = { 0, 0, 0 };
+    size_t i;
+    char *ptr = (char *)val;
+
+    for (i = 0; i < 3; ++i) {
+        res[i] = strtoul(ptr, &ptr, 10);
+        if (res[i] > 127)
+            return 0;
+        if (*ptr == '.')
+            ++ptr;
+        else
+            break;
+    }
+
+    return res[0] << 14 | res[1] << 7 | res[2];
+}
+
+uint32_t parse_os_patch_level(const char *val)
+{
+    uint32_t y = 0;
+    uint32_t m = 0;
+    char *ptr = (char *)val;
+
+    y = strtoul(ptr, &ptr, 10);
+
+    if (y < 2000 || y > 2127)
+        return 0;
+
+    if (*ptr == '-') {
+        m = strtoul(++ptr, NULL, 10);
+        if (m == 0 || m > 12)
+            return 0;
+    }
+
+    return (y - 2000) << 4 | m;
+}
+
 int usage(void)
 {
     fprintf(stderr,"usage: mkbootimg\n"
             "       --kernel <filename>\n"
             "       [ --ramdisk <filename> ]\n"
             "       [ --second <2ndbootloader-filename> ]\n"
-	    "       [ --dt_dir <dtb path> ]\n"
+            "       [ --dt_dir <dtb path> ]\n"
             "       [ --cmdline <kernel-commandline> ]\n"
             "       [ --board <boardname> ]\n"
             "       [ --base <address> ]\n"
             "       [ --pagesize <pagesize> ]\n"
+            "       [ --os_version <osversion> ]\n"
+            "       [ --os_patch_level <ospatchlevel> ]\n"
             "       [ --id ]\n"
             "       -o|--output <filename>\n"
             );
@@ -422,6 +463,8 @@ int main(int argc, char **argv)
 	uint32_t ramdisk_offset = 0x01000000U;
 	uint32_t second_offset  = 0x00f00000U;
 	uint32_t tags_offset    = 0x00000100U;
+	uint32_t os_version     = 0x00000000U;
+	uint32_t os_patch_level = 0x00000000U;
 
 	argc--;
 	argv++;
@@ -463,6 +506,18 @@ int main(int argc, char **argv)
 			second_offset = strtoul(val, 0, 16);
 		    } else if(!strcmp(arg, "--tags_offset")) {
 			tags_offset = strtoul(val, 0, 16);
+		    } else if(!strcmp(arg, "--os_version")) {
+			os_version = parse_os_version(val);
+			if (os_version == 0) {
+				fprintf(stderr,"error: unsupported os version %s\n", val);
+				return -1;
+			}
+		    } else if(!strcmp(arg, "--os_patch_level")) {
+			os_patch_level = parse_os_patch_level(val);
+			if (os_patch_level == 0) {
+				fprintf(stderr,"error: unsupported os patch level %s\n", val);
+				return -1;
+			}
 		    } else if(!strcmp(arg, "--board")) {
 			board = val;
 		    } else if(!strcmp(arg,"--pagesize")) {
@@ -501,7 +556,7 @@ int main(int argc, char **argv)
 		return usage();
 	}
 
-	strcpy(hdr.name, board);
+	strcpy((char *)hdr.name, board);
 
 	memcpy(hdr.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE);
 
@@ -510,6 +565,8 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	strcpy((char*)hdr.cmdline, cmdline);
+
+	hdr.os_version = os_version << 11 | os_patch_level;
 
 	kernel_data = load_file(kernel_fn, &hdr.kernel_size);
 	if(kernel_data == 0) {

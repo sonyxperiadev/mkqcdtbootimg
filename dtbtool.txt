@@ -47,7 +47,7 @@ Android - Table of Device Tree
    8) tags addr (4B)
    9) page size (4B)
   10) unused #1 (4B) (zero in standard Android)
-  11) unused #2 (4B) (zero in standard Android)
+  11) os version (4B)
   12) product name (16B)
   13) kernel cmdline (512B)
   14) id (8B)
@@ -61,7 +61,7 @@ Android - Table of Device Tree
 2) QC table of device tree
 --------------------------
 2.1) Changes:
-   i) use "unused #1, #2" members in existing boot image
+   i) use "unused #1" member in existing boot image
       header to point to new table of device tree
       (#1 - size of QC table of DT)
   ii) append table of device tree (described later)
